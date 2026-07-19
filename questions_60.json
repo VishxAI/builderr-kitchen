@@ -1,0 +1,38 @@
+[
+  {
+    "id": "s01",
+    "video_id": "sample_60min",
+    "type": "count",
+    "question": "How many people are visible in the kitchen at 20:00?"
+  },
+  {
+    "id": "s02",
+    "video_id": "sample_60min",
+    "type": "yes_no",
+    "question": "Is anyone wearing a red shirt at 5:00?"
+  },
+  {
+    "id": "s03",
+    "video_id": "sample_60min",
+    "type": "yes_no",
+    "question": "Are there blue plastic crates on the shelves at the left side of the kitchen?"
+  },
+  {
+    "id": "s04",
+    "video_id": "sample_60min",
+    "type": "timestamp",
+    "question": "At what time was a large round wooden board first placed on the center prep table?"
+  },
+  {
+    "id": "s05",
+    "video_id": "sample_60min",
+    "type": "duration",
+    "question": "How long was the large round wooden board on the center prep table?"
+  },
+  {
+    "id": "s06",
+    "video_id": "sample_60min",
+    "type": "yes_no",
+    "question": "Is any text written on the screen overlay of this CCTV camera?"
+  }
+]

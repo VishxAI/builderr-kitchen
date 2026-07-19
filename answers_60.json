@@ -1,0 +1,62 @@
+[
+  {
+    "answer": 4,
+    "confidence": 0.85,
+    "evidence": [
+      {
+        "video_id": "sample_60min",
+        "timestamp_start": 1200,
+        "timestamp_end": 1200
+      }
+    ],
+    "id": "s01"
+  },
+  {
+    "answer": "yes",
+    "confidence": 0.85,
+    "evidence": [
+      {
+        "video_id": "sample_60min",
+        "timestamp_start": 299,
+        "timestamp_end": 301
+      }
+    ],
+    "id": "s02"
+  },
+  {
+    "answer": "yes",
+    "confidence": 0.85,
+    "evidence": [
+      {
+        "video_id": "sample_60min",
+        "timestamp_start": 792.0,
+        "timestamp_end": 3352.8
+      }
+    ],
+    "id": "s03"
+  },
+  {
+    "answer": "not_visible",
+    "confidence": 0.4,
+    "evidence": [],
+    "id": "s04"
+  },
+  {
+    "answer": "not_visible",
+    "confidence": 0.4,
+    "evidence": [],
+    "id": "s05"
+  },
+  {
+    "answer": "yes",
+    "confidence": 0.7,
+    "evidence": [
+      {
+        "video_id": "sample_60min",
+        "timestamp_start": 792.0,
+        "timestamp_end": 792.0
+      }
+    ],
+    "id": "s06"
+  }
+]

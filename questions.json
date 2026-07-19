@@ -1,0 +1,63 @@
+[
+  {
+    "id": "q101",
+    "video_id": "sample_19min",
+    "type": "count",
+    "question": "How many people are visible in the kitchen at 5:00?"
+  },
+  {
+    "id": "q102",
+    "video_id": "sample_19min",
+    "type": "yes_no",
+    "question": "Is the person in the red shirt wearing a cap at 11:00?"
+  },
+  {
+    "id": "q103",
+    "video_id": "sample_19min",
+    "type": "yes_no",
+    "question": "Is the cook in the black shirt at the wok station wearing any headwear at 11:00?"
+  },
+  {
+    "id": "q104",
+    "video_id": "sample_19min",
+    "type": "yes_no",
+    "question": "Is a flame visible under any wok at 13:00?"
+  },
+  {
+    "id": "q105",
+    "video_id": "sample_19min",
+    "type": "yes_no",
+    "question": "Is there an electric fan in the kitchen?"
+  },
+  {
+    "id": "q106",
+    "video_id": "sample_19min",
+    "type": "timestamp",
+    "question": "At what time was the large yellow plastic barrel first placed at the left end of the prep counter?"
+  },
+  {
+    "id": "q107",
+    "video_id": "sample_19min",
+    "type": "yes_no",
+    "question": "Is any order number visible on a receipt or screen at 10:00?"
+  },
+  {
+    "id": "q108",
+    "video_id": "sample_19min",
+    "type": "count",
+    "question": "How many staff typically work in this kitchen during the video?"
+  },
+  {
+    "id": "q109",
+    "video_id": "sample_19min",
+    "type": "multiple_choice",
+    "question": "Where does the cook in the black shirt spend most of his time?",
+    "options": ["at the wok station", "at the storage shelves", "at the sink"]
+  },
+  {
+    "id": "q110",
+    "video_id": "sample_19min",
+    "type": "yes_no",
+    "question": "Was a white foam box present on the left prep counter before the yellow barrel appeared?"
+  }
+]

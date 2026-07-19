@@ -1,0 +1,9 @@
+[
+  { "id": "q201", "answer": 688.0, "tolerance_s": 2.5 },
+  { "id": "q202", "answer": "yes" },
+  { "id": "q203", "answer": 29.0, "tolerance_s": 4 },
+  { "id": "q204", "answer": "the cook placed food on a yellow plate" },
+  { "id": "q205", "answer": 717.0, "tolerance_s": 3 },
+  { "id": "q206", "answer": "yes" },
+  { "id": "q207", "answer": "no" }
+]

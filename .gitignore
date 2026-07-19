@@ -1,0 +1,8 @@
+videos/
+answers.json
+run_log.json
+__pycache__/
+*.pyc
+.venv/
+*.pt
+*.index.json

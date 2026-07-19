@@ -1,0 +1,48 @@
+[
+  {
+    "id": "q201",
+    "video_id": "sample_19min",
+    "type": "timestamp",
+    "question": "At what time did a delivery person wearing a face mask first enter the kitchen?"
+  },
+  {
+    "id": "q202",
+    "video_id": "sample_19min",
+    "type": "yes_no",
+    "question": "Is a delivery person with a face mask present in the kitchen at 11:40?"
+  },
+  {
+    "id": "q203",
+    "video_id": "sample_19min",
+    "type": "duration",
+    "question": "How long did the delivery person with the face mask stay in the kitchen?"
+  },
+  {
+    "id": "q204",
+    "video_id": "sample_19min",
+    "type": "multiple_choice",
+    "question": "Which happened first?",
+    "options": [
+      "the cook placed food on a yellow plate",
+      "the delivery person with a face mask entered the kitchen"
+    ]
+  },
+  {
+    "id": "q205",
+    "video_id": "sample_19min",
+    "type": "timestamp",
+    "question": "At what time was a white takeaway box first being filled on the center counter?"
+  },
+  {
+    "id": "q206",
+    "video_id": "sample_19min",
+    "type": "yes_no",
+    "question": "Is the cook in black filling a white takeaway container at 12:05?"
+  },
+  {
+    "id": "q207",
+    "video_id": "sample_19min",
+    "type": "yes_no",
+    "question": "Did the cook close the white takeaway container before the delivery person entered the kitchen?"
+  }
+]

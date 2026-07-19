@@ -1,0 +1,12 @@
+[
+  { "id": "q101", "answer": 2 },
+  { "id": "q102", "answer": "yes" },
+  { "id": "q103", "answer": "no" },
+  { "id": "q104", "answer": "yes" },
+  { "id": "q105", "answer": "yes" },
+  { "id": "q106", "answer": 346.5, "tolerance_s": 3 },
+  { "id": "q107", "answer": "no" },
+  { "id": "q108", "answer": 2 },
+  { "id": "q109", "answer": "at the wok station" },
+  { "id": "q110", "answer": "yes" }
+]

@@ -1,0 +1,61 @@
+[
+  {
+    "id": "q301",
+    "video_id": "sample_22min",
+    "type": "text",
+    "question": "What brand name is written on the metal gas stove?"
+  },
+  {
+    "id": "q302",
+    "video_id": "sample_22min",
+    "type": "yes_no",
+    "question": "Is there a bowl of diced yellow potato pieces near the stove at 10:00?"
+  },
+  {
+    "id": "q303",
+    "video_id": "sample_22min",
+    "type": "yes_no",
+    "question": "Are scissors visible on the counter at 7:00?"
+  },
+  {
+    "id": "q304",
+    "video_id": "sample_22min",
+    "type": "yes_no",
+    "question": "Is the large bowl next to the chopping board empty at 7:00?"
+  },
+  {
+    "id": "q305",
+    "video_id": "sample_22min",
+    "type": "timestamp",
+    "question": "At what time was the bowl of diced yellow potatoes first placed near the stove?"
+  },
+  {
+    "id": "q306",
+    "video_id": "sample_22min",
+    "type": "multiple_choice",
+    "question": "What color is the large bowl that contains the diced meat?",
+    "options": ["pink or magenta", "green", "white"]
+  },
+  {
+    "id": "q307",
+    "video_id": "sample_22min",
+    "type": "multiple_choice",
+    "question": "Which happened first?",
+    "options": [
+      "food was fried in the black pan on the stove",
+      "dishes were washed at the sink"
+    ]
+  },
+  {
+    "id": "q308",
+    "video_id": "sample_22min",
+    "type": "yes_no",
+    "question": "Does the cooking in this video use a black frying pan?"
+  },
+  {
+    "id": "q309",
+    "video_id": "sample_22min",
+    "type": "count",
+    "question": "How many people are cooking in this video?"
+  }
+]

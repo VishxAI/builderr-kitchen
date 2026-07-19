@@ -1,0 +1,10 @@
+numpy
+opencv-python
+torch
+transformers>=5.0
+accelerate
+qwen-vl-utils
+ultralytics
+easyocr
+huggingface_hub
+hf_transfer

@@ -1,0 +1,80 @@
+[
+  {
+    "answer": 690.6,
+    "confidence": 0.7,
+    "evidence": [
+      {
+        "video_id": "sample_19min",
+        "timestamp_start": 689.9,
+        "timestamp_end": 690.6
+      }
+    ],
+    "id": "q201"
+  },
+  {
+    "answer": "yes",
+    "confidence": 0.85,
+    "evidence": [
+      {
+        "video_id": "sample_19min",
+        "timestamp_start": 699,
+        "timestamp_end": 701
+      }
+    ],
+    "id": "q202"
+  },
+  {
+    "answer": 25.9,
+    "confidence": 0.6,
+    "evidence": [
+      {
+        "video_id": "sample_19min",
+        "timestamp_start": 692.0,
+        "timestamp_end": 717.9
+      }
+    ],
+    "id": "q203"
+  },
+  {
+    "answer": "the cook placed food on a yellow plate",
+    "confidence": 0.4,
+    "evidence": [
+      {
+        "video_id": "sample_19min",
+        "timestamp_start": 83.0,
+        "timestamp_end": 83.0
+      }
+    ],
+    "id": "q204"
+  },
+  {
+    "answer": "not_visible",
+    "confidence": 0.4,
+    "evidence": [],
+    "id": "q205"
+  },
+  {
+    "answer": "yes",
+    "confidence": 0.85,
+    "evidence": [
+      {
+        "video_id": "sample_19min",
+        "timestamp_start": 724,
+        "timestamp_end": 726
+      }
+    ],
+    "id": "q206"
+  },
+  {
+    "answer": "no",
+    "confidence": 0.85,
+    "evidence": [
+      {
+        "video_id": "sample_19min",
+        "timestamp_start": 205.2,
+        "timestamp_end": 982.5
+      }
+    ],
+    "id": "q207"
+  }
+]

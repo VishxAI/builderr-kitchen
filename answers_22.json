@@ -1,0 +1,104 @@
+[
+  {
+    "answer": "not_visible",
+    "confidence": 0.5,
+    "evidence": [],
+    "id": "q301"
+  },
+  {
+    "answer": "yes",
+    "confidence": 0.85,
+    "evidence": [
+      {
+        "video_id": "sample_22min",
+        "timestamp_start": 599,
+        "timestamp_end": 601
+      }
+    ],
+    "id": "q302"
+  },
+  {
+    "answer": "yes",
+    "confidence": 0.85,
+    "evidence": [
+      {
+        "video_id": "sample_22min",
+        "timestamp_start": 419,
+        "timestamp_end": 421
+      }
+    ],
+    "id": "q303"
+  },
+  {
+    "answer": "no",
+    "confidence": 0.85,
+    "evidence": [
+      {
+        "video_id": "sample_22min",
+        "timestamp_start": 419,
+        "timestamp_end": 421
+      }
+    ],
+    "id": "q304"
+  },
+  {
+    "answer": 422.9,
+    "confidence": 0.65,
+    "evidence": [
+      {
+        "video_id": "sample_22min",
+        "timestamp_start": 379.9,
+        "timestamp_end": 422.9
+      }
+    ],
+    "id": "q305"
+  },
+  {
+    "answer": "pink or magenta",
+    "confidence": 0.7,
+    "evidence": [
+      {
+        "video_id": "sample_22min",
+        "timestamp_start": 87.3,
+        "timestamp_end": 1021.8
+      }
+    ],
+    "id": "q306"
+  },
+  {
+    "answer": "food was fried in the black pan on the stove",
+    "confidence": 0.55,
+    "evidence": [
+      {
+        "video_id": "sample_22min",
+        "timestamp_start": 48.0,
+        "timestamp_end": 48.0
+      }
+    ],
+    "id": "q307"
+  },
+  {
+    "answer": "yes",
+    "confidence": 0.85,
+    "evidence": [
+      {
+        "video_id": "sample_22min",
+        "timestamp_start": 87.3,
+        "timestamp_end": 1021.8
+      }
+    ],
+    "id": "q308"
+  },
+  {
+    "answer": 1,
+    "confidence": 0.5,
+    "evidence": [
+      {
+        "video_id": "sample_22min",
+        "timestamp_start": 0,
+        "timestamp_end": 1334.9
+      }
+    ],
+    "id": "q309"
+  }
+]

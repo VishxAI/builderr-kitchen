@@ -1,0 +1,11 @@
+[
+  { "id": "q301", "answer": "Rinnai" },
+  { "id": "q302", "answer": "yes" },
+  { "id": "q303", "answer": "yes" },
+  { "id": "q304", "answer": "no" },
+  { "id": "q305", "answer": 424.5, "tolerance_s": 4 },
+  { "id": "q306", "answer": "pink or magenta" },
+  { "id": "q307", "answer": "food was fried in the black pan on the stove" },
+  { "id": "q308", "answer": "yes" },
+  { "id": "q309", "answer": 1 }
+]
