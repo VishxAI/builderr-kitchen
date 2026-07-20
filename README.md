@@ -39,19 +39,22 @@ is genuinely $0.00.** GPU (≥6 GB VRAM) recommended; CPU works with more wall-c
 
 ## Measured (RTX 5050 laptop, 8 GB VRAM)
 
-| Metric | 19.5-min, 10 static q | 19.5-min, 7 handoff q | 22-min portrait, 9 q | hygiene probes, 5 q | 60-min, 6 q |
-|---|---|---|---|---|---|
-| Frames / cap | 362 / 488 | ~360 / 488 | 391 / 555 | ~90 / 488 | 884 / 1500 |
-| Wall-clock / cap | 55 s / 488 s | ~41 s / 488 s | 45 s / 555 s | ~35 s / 488 s | 39 s / 1500 s |
-| API cost | $0.00 | $0.00 | $0.00 | $0.00 | $0.00 |
-| Accuracy | **10/10** | **5.5/7** | **8/9** | **5/5** | unlabeled (budget test) |
+| Metric | 19.5-min, 10 static q | 19.5-min, 7 handoff q | 22-min portrait, 9 q | gold-feedback probes, 5 q | hygiene-ref video, 5 q | 60-min, 6 q |
+|---|---|---|---|---|---|---|
+| Frames / cap | 362 / 488 | ~360 / 488 | 391 / 555 | ~90 / 488 | 42 / 63 | 884 / 1500 |
+| Wall-clock / cap | 55 s / 488 s | ~41 s / 488 s | 45 s / 555 s | ~35 s / 488 s | 44 s / 63 s | 39 s / 1500 s |
+| API cost | $0.00 | $0.00 | $0.00 | $0.00 | $0.00 | $0.00 |
+| Accuracy | **10/10** | **5.5/7** | **8/9** | **5/5** | **4/5** | unlabeled (budget test) |
 
-**Combined labeled accuracy: 28.5/31 (92%)** across three very different videos:
+**Combined labeled accuracy: 32.5/36 (90%)** across four very different videos:
 a wide-angle Indonesian wok kitchen (360p landscape), its handoff events (courier
 arrival/duration, takeaway packing, event ordering), a top-down portrait
-home-kitchen close-up (no visible people, small objects), and hygiene-domain
-probes (attribute-filtered headwear counts, touch/no-touch contact, unreadable
-text). All ground truth hand-labeled by frame scrubbing; timestamp answers land
+home-kitchen close-up (no visible people, small objects), gold-feedback
+regression probes (attribute-filtered headwear counts, touch/no-touch contact,
+unreadable text), and a "messy reference" hygiene-violation compilation (rapid
+camera cuts, near-black segments, dynamic burned-in captions — see below). All
+ground truth hand-labeled by frame scrubbing, verified by direct visual
+inspection independent of any on-screen captions; timestamp answers land
 0.0-1.6 s from truth.
 
 VLM steady-state latency: ~0.21 s/query on GPU (Qwen3-VL-2B bf16); ~4 s/query
@@ -142,9 +145,35 @@ failures. Each is now covered by `scripts/probe_gold_feedback.py`:
   a watermarked video. Filtering now happens once, before any downstream use
   of `best`.
 
+## Stress-testing on the "messy reference" video
+
+The challenge page categorizes its reference footage — 4 long fixed-CCTV clips
+(3 used as dev sets above), 2 dataset-style supplemental samples, 1 "messy
+reference," 1 "style reference," 2 "reference only." The messy reference
+(`mWOoAf4rIhk`) turned out to be a heavily-edited hygiene-violation news
+compilation, not fixed-camera CCTV: rapid cuts across multiple restaurants,
+near-black segments, and dynamic burned-in narration captions ("Rat spotted",
+"Slotted spoon used for sewer dredging") that would trivially answer most
+questions if read as ground truth. Since that's a different task shape than
+"fixed-camera kitchen footage," it wasn't used to build a full 8-10 question
+dev set — instead, 5 questions with ground truth verified by direct visual
+inspection (deliberately ignoring the captions) test the specific failure
+areas the organizer's gold set keeps probing: a small/subtle object (a rodent
+on the wall), honest abstention on a near-black frame, and an attribute-color
+question. It also caught a real bug: `multiple_choice()` never used the
+timestamp parsed from the question text, so "what color are the gloves at
+2:10" sampled frames spread across the *entire* video instead of near 2:10 —
+fixed by threading the parsed anchor through.
+
 ## Known limits
 
 - Short transient events (~20 s) involving small ambiguous objects can be missed
   by the sparse scan; the engine answers `not_visible` (honest abstention)
   rather than guessing.
 - "Enter" timestamps read ~2 s late when the person is half-occluded in a doorway.
+- A very small, low-contrast object (a rat silhouette against a wall, ~15 px)
+  is borderline for the 2B VLM even at native resolution — it was seen correctly
+  one second and missed the next on identical footage. Confirmed via direct
+  yes/no probing, not just pipeline output; no reliable fix found without
+  broadening single-frame retries in a way that risks new false positives on
+  the well-tested main dev sets, so left as a documented model-scale limit.

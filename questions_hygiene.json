@@ -1,0 +1,33 @@
+[
+  {
+    "id": "q401",
+    "video_id": "sample_hygiene",
+    "type": "yes_no",
+    "question": "Is a small rodent visible on the wall near the food storage cabinet at 0:05?"
+  },
+  {
+    "id": "q402",
+    "video_id": "sample_hygiene",
+    "type": "yes_no",
+    "question": "Is the kitchen area clearly visible and well-lit at 0:35?"
+  },
+  {
+    "id": "q403",
+    "video_id": "sample_hygiene",
+    "type": "yes_no",
+    "question": "Is the person mopping the floor wearing rubber boots at 1:48?"
+  },
+  {
+    "id": "q404",
+    "video_id": "sample_hygiene",
+    "type": "count",
+    "question": "How many people are visible mopping or cleaning the floor at 1:48?"
+  },
+  {
+    "id": "q405",
+    "video_id": "sample_hygiene",
+    "type": "multiple_choice",
+    "question": "What color are the rubber gloves visible near the sink at 2:10?",
+    "options": ["yellow", "blue", "white"]
+  }
+]

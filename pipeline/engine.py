@@ -773,9 +773,15 @@ class Engine:
             return {"answer": "not_visible", "confidence": 0.3, "evidence": []}
         return {"answer": ans, "confidence": conf, "evidence": self._ev(times[0], times[-1])}
 
-    def multiple_choice(self, options: list[str], question: str) -> dict:
-        """Non-temporal MC: show a few spread frames, have the VLM pick an option."""
-        times = self.active_times(4)
+    def multiple_choice(self, options: list[str], question: str, t: float | None = None) -> dict:
+        """Non-temporal MC: show a few frames, have the VLM pick an option.
+
+        When the question names a moment, sample near it instead of a
+        whole-video activity spread -- a question about "the gloves at
+        2:10" is meaningless if none of the sampled frames are anywhere
+        near 2:10.
+        """
+        times = [t - 1.5, t, t + 1.5] if t is not None else self.active_times(4)
         _, frames = self.frames_at(times)
         if not frames:
             return {"answer": "not_visible", "confidence": 0.0, "evidence": []}
@@ -970,7 +976,7 @@ class Engine:
             if options and re.search(r"\border|sequence|first|last|before|after\b", qtext, re.I):
                 res = self.order_events(options, qtext)
             elif options:
-                res = self.multiple_choice(options, qtext)
+                res = self.multiple_choice(options, qtext, t)
             else:
                 res = {"answer": "not_visible", "confidence": 0.2, "evidence": []}
         elif qtype == "yes_no" and re.search(r"\s(before|after)\s", qtext, re.I):

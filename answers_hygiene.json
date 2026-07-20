@@ -1,0 +1,62 @@
+[
+  {
+    "answer": "no",
+    "confidence": 0.85,
+    "evidence": [
+      {
+        "video_id": "sample_hygiene",
+        "timestamp_start": 4,
+        "timestamp_end": 6
+      }
+    ],
+    "id": "q401"
+  },
+  {
+    "answer": "no",
+    "confidence": 0.85,
+    "evidence": [
+      {
+        "video_id": "sample_hygiene",
+        "timestamp_start": 34,
+        "timestamp_end": 36
+      }
+    ],
+    "id": "q402"
+  },
+  {
+    "answer": "yes",
+    "confidence": 0.85,
+    "evidence": [
+      {
+        "video_id": "sample_hygiene",
+        "timestamp_start": 107,
+        "timestamp_end": 109
+      }
+    ],
+    "id": "q403"
+  },
+  {
+    "answer": 1,
+    "confidence": 0.6,
+    "evidence": [
+      {
+        "video_id": "sample_hygiene",
+        "timestamp_start": 108,
+        "timestamp_end": 108
+      }
+    ],
+    "id": "q404"
+  },
+  {
+    "answer": "yellow",
+    "confidence": 0.7,
+    "evidence": [
+      {
+        "video_id": "sample_hygiene",
+        "timestamp_start": 128.5,
+        "timestamp_end": 131.5
+      }
+    ],
+    "id": "q405"
+  }
+]
