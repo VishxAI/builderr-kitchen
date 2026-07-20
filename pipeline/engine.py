@@ -49,6 +49,25 @@ TOUCH_VERBS = re.compile(
     r"\b(touch(?:es|ed|ing)?|contact|bare\s?hands?|handl(?:e|es|ed|ing)|"
     r"grab(?:s|bed|bing)?|pick(?:s|ed)?\s?up)\b", re.I)
 
+# a "wearing a {color} {garment}" predicate needs the color bound to the
+# right garment -- the 2B model's yes/no verdict happily says "yes" to
+# "black shirt" when only the person's cap is black, even though its own
+# free-text description correctly separates "red shirt" from "black cap"
+COLOR_WORDS = ("red", "black", "white", "blue", "green", "yellow", "orange",
+               "pink", "purple", "gray", "grey", "brown", "navy", "maroon")
+GARMENT_WORDS = ("shirt", "t-shirt", "tshirt", "cap", "hat", "apron", "glove",
+                 "jacket", "uniform", "hairnet", "mask", "helmet", "vest")
+
+
+def color_garment_predicate(predicate: str) -> tuple[str, str] | None:
+    """Extract (color, garment) from a predicate like 'wearing a red shirt'."""
+    for color in COLOR_WORDS:
+        if re.search(rf"\b{color}\b", predicate, re.I):
+            for garment in GARMENT_WORDS:
+                if re.search(rf"\b{garment}s?\b", predicate, re.I):
+                    return color, garment
+    return None
+
 
 # ---------------------------------------------------------------- utilities
 
@@ -124,6 +143,25 @@ def yes_no_from_text(answer: str) -> tuple[str | None, float]:
     if "no" in a and "yes" not in a:
         return "no", 0.6
     return None, 0.0
+
+
+def verdict_from_text(answer: str) -> tuple[str | None, float]:
+    """Parse a describe-then-verdict response.
+
+    Small VLMs sometimes blurt a snap 'yes' as the very first token, then
+    write an accurate description that actually contradicts it ("...so the
+    statement is false"). An explicit trailing 'Answer: yes/no' marker (which
+    callers should prompt for) is trusted first; failing that, the *last*
+    yes/no token beats the first, since self-correction happens after the
+    initial guess, not before it.
+    """
+    m = re.search(r"answer\s*:?\s*(yes|no)\b", answer, re.I)
+    if m:
+        return m.group(1).lower(), 0.85
+    matches = list(re.finditer(r"\b(yes|no)\b", answer, re.I))
+    if matches:
+        return matches[-1].group(1).lower(), 0.6
+    return yes_no_from_text(answer)
 
 
 def count_from_text(answer: str) -> int | None:
@@ -260,19 +298,36 @@ class Engine:
             return None
         return nearest
 
+    def _person_frame_near(self, t: float, window: float = 12.0):
+        """Best nearby index record with detected people, not just the nearest sample.
+
+        YOLO can miss a person in the single frame closest to t (motion blur,
+        partial occlusion) while a neighbor a couple seconds away catches them.
+        """
+        recs = self.index["records"]
+        candidates = [r for r in recs if abs(r["t"] - t) <= window and r.get("person_boxes")]
+        if not candidates:
+            return None
+        return min(candidates, key=lambda r: (-len(r["person_boxes"]), abs(r["t"] - t)))
+
     def grounded_person_count(self, t: float | None, question: str) -> dict:
         """Attribute-filtered person count: crop each detected person and ask
         the VLM about each crop individually, then count the yeses."""
         predicate = re.sub(
             r"^how many\s+(people|persons?|staff(?:\s+members?)?|workers?|cooks?|employees?)?"
             r"\s*(are|were|is)?\s*", "", question.strip(), flags=re.I).rstrip("?")
+        # a trailing time reference just confuses the per-crop predicate; the
+        # frame we pick already anchors the moment
+        predicate = re.sub(r"\s*(at\s+\d{1,2}:\d{2}(:\d{2})?|right now|currently)\s*$",
+                           "", predicate, flags=re.I).strip()
         if t is not None:
-            cand = [self._record_near(t)]
+            cand = [self._person_frame_near(t) or self._person_frame_near(t, window=25.0)]
         else:
-            cand = [self._record_near(tt) for tt in self.active_times(3)]
+            cand = [self._person_frame_near(tt) for tt in self.active_times(3)]
         cand = [r for r in cand if r and r.get("person_boxes")]
         if not cand:
-            # nobody detected anywhere the question points: fall back to VLM count
+            # genuinely nobody detected near the question's moment: fall back
+            # to a blind whole-frame VLM count rather than guessing zero
             return self.at_time_count(t if t is not None else self.duration / 2, question)
         counts = []
         used_t = None
@@ -282,30 +337,82 @@ class Engine:
                 continue
             frame = frames[0]
             h, w = frame.shape[:2]
+            boxes = rec["person_boxes"]
             crops = []
-            for x1, y1, x2, y2 in rec["person_boxes"]:
-                mx, my = 0.15 * (x2 - x1), 0.15 * (y2 - y1)
-                cx1, cy1 = max(0, int(x1 - mx)), max(0, int(y1 - my))
-                cx2, cy2 = min(w, int(x2 + mx)), min(h, int(y2 + my))
+            for i, (x1, y1, x2, y2) in enumerate(boxes):
+                # generous margin: attribute cues (shirt color, headwear) sit
+                # near the box edge and a tight crop clips them off -- but
+                # stop at the midpoint to any neighboring person so a crop
+                # never bleeds in another person's clothing
+                mx, my = 0.3 * (x2 - x1), 0.3 * (y2 - y1)
+                ex1, ey1, ex2, ey2 = x1 - mx, y1 - my, x2 + mx, y2 + my
+                for j, (ox1, oy1, ox2, oy2) in enumerate(boxes):
+                    if j == i:
+                        continue
+                    if ox2 <= x1:
+                        ex1 = max(ex1, (x1 + ox2) / 2)
+                    if ox1 >= x2:
+                        ex2 = min(ex2, (x2 + ox1) / 2)
+                    if oy2 <= y1:
+                        ey1 = max(ey1, (y1 + oy2) / 2)
+                    if oy1 >= y2:
+                        ey2 = min(ey2, (y2 + oy1) / 2)
+                cx1, cy1 = max(0, int(ex1)), max(0, int(ey1))
+                cx2, cy2 = min(w, int(ex2)), min(h, int(ey2))
                 crop = frame[cy1:cy2, cx1:cx2]
                 if crop.size == 0:
                     continue
-                if crop.shape[0] < 220:
-                    s = 220 / crop.shape[0]
+                if crop.shape[0] < 320:
+                    s = 320 / crop.shape[0]
                     crop = cv2.resize(crop, None, fx=s, fy=s, interpolation=cv2.INTER_CUBIC)
                 crops.append(crop)
             if not crops:
                 continue
-            raw = self.vlm_ask(
-                crops,
-                "Each image shows one person cropped from the same kitchen CCTV frame. "
-                f"For each person, answer whether this is true of them: {predicate}. "
-                "Reply with one line per image in the form '1: yes' or '1: no'.",
-                max_new_tokens=16 * len(crops),
-            )
-            n = sum(1 for i in range(len(crops))
-                    if (m := re.search(rf"\b{i + 1}\s*[:\)]\s*(yes|no)", raw, re.I))
-                    and m.group(1).lower() == "yes")
+            # query each crop in its own call: the 2B model is unreliable at
+            # discriminating between multiple images sharing one prompt (it
+            # tends to repeat the same verdict for every line regardless of
+            # what's actually in each image)
+            cg = color_garment_predicate(predicate)
+            n = 0
+            for crop in crops:
+                if cg:
+                    # ask for the specific garment's color directly instead
+                    # of a yes/no verdict: the model's own verdict happily
+                    # says "yes, black shirt" when only the cap is black,
+                    # even though it can correctly name each garment's color
+                    # when asked one at a time
+                    color, garment = cg
+                    resp = self.vlm_ask(
+                        crop,
+                        f"This is one person cropped from a kitchen CCTV frame, at "
+                        f"close range. What color is their {garment}? Answer with "
+                        f"just the color word, or 'none' if they are not wearing a "
+                        f"{garment}.",
+                        max_new_tokens=8,
+                    ).strip().lower()
+                    synonyms = {"gray": "grey", "grey": "gray"}
+                    ans = "yes" if (re.search(rf"\b{color}\b", resp)
+                                    or re.search(rf"\b{synonyms.get(color, color)}\b", resp)) else "no"
+                    if TRACE:
+                        print(f"    crop {garment} color: {resp!r} -> {ans}")
+                else:
+                    # describe first, verdict last: a snap first-token 'yes'
+                    # from this model often gets contradicted by its own
+                    # description
+                    single = self.vlm_ask(
+                        crop,
+                        "This is one person cropped from a kitchen CCTV frame, at "
+                        "close range. First, in one sentence, describe their "
+                        "visible clothing colors and headwear. Then on a new line "
+                        f"write exactly 'Answer: yes' or 'Answer: no' for whether "
+                        f"this is true of them: {predicate}.",
+                        max_new_tokens=48,
+                    )
+                    ans, _ = verdict_from_text(single)
+                    if TRACE:
+                        print(f"    crop verdict: {single!r} -> {ans}")
+                if ans == "yes":
+                    n += 1
             counts.append(n)
             used_t = rec["t"]
         if not counts:
@@ -386,11 +493,28 @@ class Engine:
             raw = self.vlm_ask(
                 frames,
                 "These are consecutive CCTV frames spanning about six seconds, in order. "
-                f"{question} Answer yes only if you can actually see it happen in these "
-                "frames. If the object or the action is not visible in any frame, answer no. "
-                "Answer yes or no, then one short sentence.",
+                f"{question} Answer yes only if you can actually see direct physical "
+                "contact happen in these frames, not just proximity or reaching toward "
+                "it. If the object or the contact itself is not clearly visible in any "
+                "frame, answer no. Answer yes or no, then one short sentence.",
             )
             ans, _ = yes_no_from_text(raw)
+            if ans == "yes":
+                # a single lenient read is not enough evidence for a contact
+                # claim: re-ask with an adversarial framing that explicitly
+                # offers "near but not touching" as the honest answer
+                confirm = self.vlm_ask(
+                    frames,
+                    "Look very carefully at these consecutive CCTV frames again. "
+                    f"{question} Contact means the hand or object surface is "
+                    "physically touching, with no visible gap. Being close, "
+                    "reaching toward, or hovering over it does NOT count as "
+                    "contact. If you cannot clearly see the point of contact "
+                    "itself, answer no. Answer yes or no, then one short sentence.",
+                )
+                cans, _ = yes_no_from_text(confirm)
+                if cans != "yes":
+                    ans = "no"
             if ans is not None:
                 votes.append(ans)
                 if ans == "yes":
@@ -687,55 +811,81 @@ class Engine:
     def ocr_question(self, t: float | None, question: str) -> dict:
         from . import ocr
 
-        times = [t] if t is not None else self.active_times(6)
+        # a single frame's VLM reading is an unreliable witness on its own
+        # (a 2B model will confidently guess a plausible-looking brand name);
+        # sample a short burst even for an anchored timestamp so a reading
+        # needs to recur before it's trusted
+        times = [t, t + 1.0, t + 2.0] if t is not None else self.active_times(6)
+        overlays = self._overlay_texts(times[0])  # watermarks/timestamps burned into every frame
         best: list[dict] = []
         t_used = None
         vlm_reads: dict[str, list[float]] = {}
         digit_seen: dict[str, list[float]] = {}
+        illegible_hint = False  # something is there but nobody could read it
         for tt in times:
             _, frames = self.frames_at([tt])
             if not frames:
                 continue
             self.budget.model_calls += 1
             hits = ocr.read_text(frames[0], min_confidence=0.4)
-            if hits and (not best or hits[0]["confidence"] > best[0]["confidence"]):
-                best, t_used = hits, tt
-            for h in hits:
+            trusted = [h for h in hits if re.sub(r"\W+", "", h["text"]).lower() not in overlays]
+            if trusted and (not best or trusted[0]["confidence"] > best[0]["confidence"]):
+                best, t_used = trusted, tt
+            for h in trusted:
                 if len(re.sub(r"\D", "", h["text"])) >= 2:
                     digit_seen.setdefault(
                         re.sub(r"\W+", "", h["text"]).lower(), []).append(tt)
+            # a weak pass below the trust threshold still tells us characters
+            # are present even when we can't trust their content. The small
+            # VLM cannot reliably self-report "illegible" vs "nothing here"
+            # (it calls text it can't parse "none" just as often as it calls
+            # it "illegible"), so this OCR signal -- not the model's wording --
+            # is what decides the difference between not_visible and no.
+            if not trusted:
+                weak = ocr.read_text(frames[0], min_confidence=0.05)
+                weak = [h for h in weak if re.sub(r"\W+", "", h["text"]).lower() not in overlays]
+                if weak:
+                    illegible_hint = True
             # second reader: the VLM with a 2x upscale - catches small or
             # rotated text that trips EasyOCR
             f = frames[0]
             up = cv2.resize(f, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
             raw = self.vlm_ask(
                 [f, up],
-                f"The second image is a magnified copy. {question} "
-                "Answer with just the text you can read, or unclear.",
+                f"The second image is a magnified copy. {question} Answer with just "
+                "the text you can read, or 'unclear' if you cannot make it out.",
                 max_new_tokens=16,
             ).strip().strip(".\"'")
-            non_answer = re.search(r"unclear|unanswer|unknown|not (readable|visible|legible)|cannot|can't|no text",
-                                   raw, re.I)
+            non_answer = re.search(
+                r"unclear|unanswer|unknown|not (readable|visible|legible)|"
+                r"cannot|can'?t|no text|^none$", raw, re.I)
             if raw and not non_answer and len(raw) < 60:
                 key = raw.lower()
                 vlm_reads.setdefault(key, []).append(tt)
                 if len(re.sub(r"\D", "", raw)) >= 2:
                     digit_seen.setdefault(
                         re.sub(r"\W+", "", raw).lower(), []).append(tt)
-        overlays = self._overlay_texts(times[0])
-        digit_seen = {k: ts for k, ts in digit_seen.items() if k not in overlays}
         wants_number = re.search(r"\b(number|no\.|#)\b", question, re.I)
         visibility = re.search(r"\b(visible|readable|legible|can you (see|read))\b", question, re.I)
         if self._qtype == "yes_no" or visibility:
-            found = bool(digit_seen) if wants_number else bool(best or vlm_reads)
-            ans = "yes" if found else "no"
-            conf = 0.7 if found else 0.5
+            # a lone VLM guess is not evidence: require either an OCR hit
+            # (best) or the same reading recurring across sampled frames
+            corroborated_read = any(len(set(ts)) > 1 for ts in vlm_reads.values())
+            found = bool(digit_seen) if wants_number else bool(best or corroborated_read)
             ev = self._ev(t_used, t_used) if t_used is not None else []
-            return {"answer": ans, "confidence": conf, "evidence": ev}
+            if found:
+                return {"answer": "yes", "confidence": 0.7, "evidence": ev}
+            if illegible_hint or vlm_reads:
+                # something is there but nobody -- OCR or VLM -- could read
+                # it confidently or consistently; that's not the same as
+                # confidently no text (an uncorroborated single guess in
+                # vlm_reads is itself evidence something was there to guess at)
+                return {"answer": "not_visible", "confidence": 0.4, "evidence": ev}
+            return {"answer": "no", "confidence": 0.5, "evidence": ev}
         if wants_number:
             # a number answer must recur across sampled moments and not be a
             # burned-in overlay; otherwise the text is not reliably readable
-            repeated = [k for k, ts in digit_seen.items() if len(set(ts)) > 1 or t is not None]
+            repeated = [k for k, ts in digit_seen.items() if len(set(ts)) > 1]
             if repeated:
                 k = max(repeated, key=lambda k: len(digit_seen[k]))
                 tt = digit_seen[k][0]
