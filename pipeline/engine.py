@@ -38,6 +38,17 @@ PERSON_EVENT = re.compile(
 CONTAINER_WORDS = ("bowl", "plate", "pan", "pot", "box", "bag", "tray",
                    "container", "barrel", "bucket", "basket", "jug")
 
+# counts filtered by a person attribute need per-person grounding, not a
+# whole-frame guess ("how many staff wear hair covers?")
+ATTRIBUTE_COUNT = re.compile(
+    r"\b(wear(?:s|ing)?|hair\s?cover|hairnet|hat|cap|glove|apron|mask|helmet|"
+    r"headwear|uniform|shirt|jacket|beard\s?net)\b", re.I)
+
+# contact judgments need a dense frame burst, not a single sample
+TOUCH_VERBS = re.compile(
+    r"\b(touch(?:es|ed|ing)?|contact|bare\s?hands?|handl(?:e|es|ed|ing)|"
+    r"grab(?:s|bed|bing)?|pick(?:s|ed)?\s?up)\b", re.I)
+
 
 # ---------------------------------------------------------------- utilities
 
@@ -239,6 +250,158 @@ class Engine:
         if n is None:
             return {"answer": "not_visible", "confidence": 0.2, "evidence": self._ev(t, t)}
         return {"answer": n, "confidence": conf, "evidence": self._ev(t, t)}
+
+    def _record_near(self, t: float):
+        recs = self.index["records"]
+        if not recs:
+            return None
+        nearest = min(recs, key=lambda r: abs(r["t"] - t))
+        if abs(nearest["t"] - t) > 2 * self.index["interval_s"]:
+            return None
+        return nearest
+
+    def grounded_person_count(self, t: float | None, question: str) -> dict:
+        """Attribute-filtered person count: crop each detected person and ask
+        the VLM about each crop individually, then count the yeses."""
+        predicate = re.sub(
+            r"^how many\s+(people|persons?|staff(?:\s+members?)?|workers?|cooks?|employees?)?"
+            r"\s*(are|were|is)?\s*", "", question.strip(), flags=re.I).rstrip("?")
+        if t is not None:
+            cand = [self._record_near(t)]
+        else:
+            cand = [self._record_near(tt) for tt in self.active_times(3)]
+        cand = [r for r in cand if r and r.get("person_boxes")]
+        if not cand:
+            # nobody detected anywhere the question points: fall back to VLM count
+            return self.at_time_count(t if t is not None else self.duration / 2, question)
+        counts = []
+        used_t = None
+        for rec in cand:
+            _, frames = self.frames_at([rec["t"]])
+            if not frames:
+                continue
+            frame = frames[0]
+            h, w = frame.shape[:2]
+            crops = []
+            for x1, y1, x2, y2 in rec["person_boxes"]:
+                mx, my = 0.15 * (x2 - x1), 0.15 * (y2 - y1)
+                cx1, cy1 = max(0, int(x1 - mx)), max(0, int(y1 - my))
+                cx2, cy2 = min(w, int(x2 + mx)), min(h, int(y2 + my))
+                crop = frame[cy1:cy2, cx1:cx2]
+                if crop.size == 0:
+                    continue
+                if crop.shape[0] < 220:
+                    s = 220 / crop.shape[0]
+                    crop = cv2.resize(crop, None, fx=s, fy=s, interpolation=cv2.INTER_CUBIC)
+                crops.append(crop)
+            if not crops:
+                continue
+            raw = self.vlm_ask(
+                crops,
+                "Each image shows one person cropped from the same kitchen CCTV frame. "
+                f"For each person, answer whether this is true of them: {predicate}. "
+                "Reply with one line per image in the form '1: yes' or '1: no'.",
+                max_new_tokens=16 * len(crops),
+            )
+            n = sum(1 for i in range(len(crops))
+                    if (m := re.search(rf"\b{i + 1}\s*[:\)]\s*(yes|no)", raw, re.I))
+                    and m.group(1).lower() == "yes")
+            counts.append(n)
+            used_t = rec["t"]
+        if not counts:
+            return {"answer": "not_visible", "confidence": 0.2, "evidence": []}
+        modal = max(set(counts), key=counts.count)
+        return {"answer": modal, "confidence": 0.7, "evidence": self._ev(used_t, used_t)}
+
+    def _locate_object(self, frame, obj: str):
+        """VLM grounding with self-verification. Returns a pixel box or None."""
+        raw = self.vlm_ask(
+            frame,
+            f"Locate {obj} in this image. Reply only with its bounding box as "
+            "[x1, y1, x2, y2] in 0-1000 normalized coordinates, or none if not present.",
+            max_new_tokens=32,
+        )
+        m = re.search(r"\[?\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\]?", raw)
+        if not m:
+            return None
+        h, w = frame.shape[:2]
+        x1, y1, x2, y2 = (int(v) for v in m.groups())
+        mx, my = 0.4 * (x2 - x1), 0.4 * (y2 - y1)
+        px1, py1 = max(0, int((x1 - mx) / 1000 * w)), max(0, int((y1 - my) / 1000 * h))
+        px2, py2 = min(w, int((x2 + mx) / 1000 * w)), min(h, int((y2 + my) / 1000 * h))
+        if px2 - px1 < 30 or py2 - py1 < 30:
+            return None
+        crop = frame[py1:py2, px1:px2]
+        crop = cv2.resize(crop, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
+        # the 2B grounder sometimes latches onto a similar-looking object;
+        # verify before trusting the crop
+        check, _ = yes_no_from_text(self.vlm_ask(
+            crop, f"Does this image crop clearly show {obj}? Answer yes or no.",
+            max_new_tokens=8))
+        return (px1, py1, px2, py2) if check == "yes" else None
+
+    def touch_burst(self, t: float | None, question: str) -> dict:
+        """Contact/touch judgment over a dense frame burst around the moment.
+
+        If the question names a findable object, the burst is cropped to a
+        verified grounding of it; otherwise full frames are used. The prompt
+        requires the action to be actually seen — 'any frame' phrasing makes
+        the model hallucinate contact with objects that aren't even in view.
+        """
+        obj = None
+        m = re.search(TOUCH_VERBS.pattern + r"\s+(the|a|an)?\s*([^,?]+?)(?:\s+at\s+\d|\s+with\s+|\?|$)",
+                      question, re.I)
+        if m:
+            det = m.group(len(m.groups()) - 1) or "the"
+            obj = f"{det} {m.group(len(m.groups()))}".strip()
+        anchors = [t] if t is not None else self.active_times(3)
+        votes = []
+        ev = []
+        for a in anchors:
+            times = [a + dt for dt in (-3.0, -2.25, -1.5, -0.75, 0.0, 0.75, 1.5, 2.25, 3.0)]
+            kept, frames = self.frames_at(times)
+            if not frames:
+                continue
+            box = None
+            if obj:
+                box = self._locate_object(frames[len(frames) // 2], obj)
+            if box:
+                # contact needs person AND object in view: union the object box
+                # with any detected person boxes before cropping
+                x1, y1, x2, y2 = box
+                rec = self._record_near(a)
+                if rec and rec.get("person_boxes"):
+                    h, w = frames[0].shape[:2]
+                    pd = min(
+                        rec["person_boxes"],
+                        key=lambda p: abs((p[0] + p[2]) / 2 - (x1 + x2) / 2)
+                                      + abs((p[1] + p[3]) / 2 - (y1 + y2) / 2),
+                    )
+                    x1, y1 = min(x1, int(pd[0]) - 10), min(y1, int(pd[1]) - 10)
+                    x2, y2 = max(x2, int(pd[2]) + 10), max(y2, int(pd[3]) + 10)
+                    x1, y1 = max(0, x1), max(0, y1)
+                    x2, y2 = min(w, x2), min(h, y2)
+                frames = [cv2.resize(f[y1:y2, x1:x2], None, fx=2.0, fy=2.0,
+                                     interpolation=cv2.INTER_CUBIC) for f in frames]
+            raw = self.vlm_ask(
+                frames,
+                "These are consecutive CCTV frames spanning about six seconds, in order. "
+                f"{question} Answer yes only if you can actually see it happen in these "
+                "frames. If the object or the action is not visible in any frame, answer no. "
+                "Answer yes or no, then one short sentence.",
+            )
+            ans, _ = yes_no_from_text(raw)
+            if ans is not None:
+                votes.append(ans)
+                if ans == "yes":
+                    ev = self._ev(a - 3, a + 3)
+        if not votes:
+            return {"answer": "not_visible", "confidence": 0.3, "evidence": []}
+        if "yes" in votes:
+            return {"answer": "yes", "confidence": 0.75 if t is not None else 0.6,
+                    "evidence": ev}
+        return {"answer": "no", "confidence": 0.7 if t is not None else 0.5,
+                "evidence": self._ev(anchors[0] - 3, anchors[-1] + 3)}
 
     def _probe(self, t: float, probe_q: str, desc: str = "",
                confirm_yes: bool = False) -> str | None:
@@ -505,6 +668,22 @@ class Engine:
                     "evidence": self._ev(times[0], times[-1])}
         return {"answer": "not_visible", "confidence": 0.2, "evidence": []}
 
+    def _overlay_texts(self, near: float) -> set[str]:
+        """Text burned into the video (timestamps, channel watermarks).
+
+        Anything OCR also reads at a control frame far from the moment of
+        interest is a static overlay, not scene content.
+        """
+        from . import ocr
+
+        control = (near + self.duration / 2) % self.duration
+        _, frames = self.frames_at([control])
+        if not frames:
+            return set()
+        self.budget.model_calls += 1
+        return {re.sub(r"\W+", "", h["text"]).lower()
+                for h in ocr.read_text(frames[0], min_confidence=0.3)}
+
     def ocr_question(self, t: float | None, question: str) -> dict:
         from . import ocr
 
@@ -512,6 +691,7 @@ class Engine:
         best: list[dict] = []
         t_used = None
         vlm_reads: dict[str, list[float]] = {}
+        digit_seen: dict[str, list[float]] = {}
         for tt in times:
             _, frames = self.frames_at([tt])
             if not frames:
@@ -520,6 +700,10 @@ class Engine:
             hits = ocr.read_text(frames[0], min_confidence=0.4)
             if hits and (not best or hits[0]["confidence"] > best[0]["confidence"]):
                 best, t_used = hits, tt
+            for h in hits:
+                if len(re.sub(r"\D", "", h["text"])) >= 2:
+                    digit_seen.setdefault(
+                        re.sub(r"\W+", "", h["text"]).lower(), []).append(tt)
             # second reader: the VLM with a 2x upscale - catches small or
             # rotated text that trips EasyOCR
             f = frames[0]
@@ -535,28 +719,38 @@ class Engine:
             if raw and not non_answer and len(raw) < 60:
                 key = raw.lower()
                 vlm_reads.setdefault(key, []).append(tt)
-        digits = [h for h in best if re.search(r"\d", h["text"])]
+                if len(re.sub(r"\D", "", raw)) >= 2:
+                    digit_seen.setdefault(
+                        re.sub(r"\W+", "", raw).lower(), []).append(tt)
+        overlays = self._overlay_texts(times[0])
+        digit_seen = {k: ts for k, ts in digit_seen.items() if k not in overlays}
         wants_number = re.search(r"\b(number|no\.|#)\b", question, re.I)
         visibility = re.search(r"\b(visible|readable|legible|can you (see|read))\b", question, re.I)
         if self._qtype == "yes_no" or visibility:
-            found = bool(digits) if wants_number else bool(best or vlm_reads)
+            found = bool(digit_seen) if wants_number else bool(best or vlm_reads)
             ans = "yes" if found else "no"
             conf = 0.7 if found else 0.5
             ev = self._ev(t_used, t_used) if t_used is not None else []
             return {"answer": ans, "confidence": conf, "evidence": ev}
-        # value questions: prefer a VLM reading confirmed at >1 timestamp,
-        # else an OCR hit, else a single VLM reading
+        if wants_number:
+            # a number answer must recur across sampled moments and not be a
+            # burned-in overlay; otherwise the text is not reliably readable
+            repeated = [k for k, ts in digit_seen.items() if len(set(ts)) > 1 or t is not None]
+            if repeated:
+                k = max(repeated, key=lambda k: len(digit_seen[k]))
+                tt = digit_seen[k][0]
+                return {"answer": k, "confidence": 0.7, "evidence": self._ev(tt, tt)}
+            return {"answer": "not_visible", "confidence": 0.5, "evidence": []}
+        # word/name value questions: prefer a VLM reading confirmed at >1
+        # timestamp, else a substantive OCR hit
         repeated = [k for k, ts in vlm_reads.items() if len(ts) > 1]
         if repeated:
             k = max(repeated, key=lambda k: len(vlm_reads[k]))
             tt = vlm_reads[k][0]
             return {"answer": k, "confidence": 0.75, "evidence": self._ev(tt, tt)}
-        if wants_number:
-            source = digits
-        else:
-            # a name/word answer needs substance; 1-2 char OCR hits are noise
-            source = [h for h in best
-                      if len(h["text"].strip()) >= 3 and re.search(r"[a-zA-Z]", h["text"])]
+        source = [h for h in best
+                  if len(h["text"].strip()) >= 3 and re.search(r"[a-zA-Z]", h["text"])
+                  and re.sub(r"\W+", "", h["text"]).lower() not in overlays]
         if source:
             return {"answer": source[0]["text"], "confidence": round(source[0]["confidence"], 2),
                     "evidence": self._ev(t_used, t_used)}
@@ -607,6 +801,10 @@ class Engine:
 
         if any(k in qtext.lower() for k in OCR_KEYWORDS):
             res = self.ocr_question(t, qtext)
+        elif qtype == "count" and ATTRIBUTE_COUNT.search(qtext):
+            res = self.grounded_person_count(t, qtext)
+        elif qtype == "yes_no" and TOUCH_VERBS.search(qtext):
+            res = self.touch_burst(t, qtext)
         elif qtype == "count" and t is not None:
             res = self.at_time_count(t, qtext)
         elif qtype == "yes_no" and t is not None:

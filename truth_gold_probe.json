@@ -1,0 +1,7 @@
+[
+  { "id": "g001", "answer": 1 },
+  { "id": "g002", "answer": 0 },
+  { "id": "g003", "answer": "yes" },
+  { "id": "g004", "answer": "no" },
+  { "id": "g005", "answer": "not_visible" }
+]

@@ -39,18 +39,20 @@ is genuinely $0.00.** GPU (≥6 GB VRAM) recommended; CPU works with more wall-c
 
 ## Measured (RTX 5050 laptop, 8 GB VRAM)
 
-| Metric | 19.5-min, 10 static q | 19.5-min, 7 handoff q | 22-min portrait, 9 q | 60-min, 6 q |
-|---|---|---|---|---|
-| Frames / cap | 361 / 488 | ~360 / 488 | 391 / 555 | 884 / 1500 |
-| Wall-clock / cap | 52 s / 488 s | ~41 s / 488 s | 45 s / 555 s | 39 s / 1500 s |
-| API cost | $0.00 | $0.00 | $0.00 | $0.00 |
-| Accuracy | **10/10** | **5.5/7** | **8/9** | unlabeled (budget test) |
+| Metric | 19.5-min, 10 static q | 19.5-min, 7 handoff q | 22-min portrait, 9 q | hygiene probes, 5 q | 60-min, 6 q |
+|---|---|---|---|---|---|
+| Frames / cap | 362 / 488 | ~360 / 488 | 391 / 555 | ~90 / 488 | 884 / 1500 |
+| Wall-clock / cap | 55 s / 488 s | ~41 s / 488 s | 45 s / 555 s | ~35 s / 488 s | 39 s / 1500 s |
+| API cost | $0.00 | $0.00 | $0.00 | $0.00 | $0.00 |
+| Accuracy | **10/10** | **5.5/7** | **8/9** | **5/5** | unlabeled (budget test) |
 
-**Combined labeled accuracy: 23.5/26 (90%)** across three very different videos:
+**Combined labeled accuracy: 28.5/31 (92%)** across three very different videos:
 a wide-angle Indonesian wok kitchen (360p landscape), its handoff events (courier
-arrival/duration, takeaway packing, event ordering), and a top-down portrait
-home-kitchen close-up (no visible people, small objects). All ground truth
-hand-labeled by frame scrubbing; timestamp answers land 0.0-1.6 s from truth.
+arrival/duration, takeaway packing, event ordering), a top-down portrait
+home-kitchen close-up (no visible people, small objects), and hygiene-domain
+probes (attribute-filtered headwear counts, touch/no-touch contact, unreadable
+text). All ground truth hand-labeled by frame scrubbing; timestamp answers land
+0.0-1.6 s from truth.
 
 VLM steady-state latency: ~0.21 s/query on GPU (Qwen3-VL-2B bf16); ~4 s/query
 CPU-only (fp32) — a 60-min/6-question run extrapolates to ~5 min on pure CPU,
@@ -88,6 +90,17 @@ still well inside the 25-min cap.
 - **Text reading is dual-source**: EasyOCR (with rotation) + VLM-on-upscale,
   answer accepted only when corroborated; otherwise `not_visible` — the rubric
   scores honest abstention, not lucky guesses.
+- **Overlay rejection**: any string OCR also reads at a control frame far from
+  the moment of interest is burned-in overlay (timestamps, channel watermarks),
+  never scene content — critical for order-number questions on watermarked CCTV.
+- **Attribute counts are per-person**: "how many staff wear hair covers" crops
+  each YOLO person box and asks about each crop individually; whole-frame
+  counting conflates "people" with "people matching the attribute".
+- **Touch/contact runs on a dense burst** (9 frames across ±3 s) cropped to a
+  *verified* VLM grounding of the named object unioned with the nearest person
+  box — object-only crops cut out the person, person-only crops cut out the
+  object, and "answer yes if it happens in ANY frame" phrasing makes the model
+  hallucinate contact with objects that aren't in view.
 
 ## Known limits
 

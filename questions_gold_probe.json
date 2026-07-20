@@ -1,0 +1,32 @@
+[
+  {
+    "id": "g001",
+    "video_id": "sample_19min",
+    "type": "count",
+    "question": "How many staff are wearing a cap or hair cover at 11:00?"
+  },
+  {
+    "id": "g002",
+    "video_id": "sample_19min",
+    "type": "count",
+    "question": "How many staff are wearing a cap or hair cover at 5:00?"
+  },
+  {
+    "id": "g003",
+    "video_id": "sample_19min",
+    "type": "yes_no",
+    "question": "Does the cook in the black shirt have his hands touching the wok or cooking ladle at 13:00?"
+  },
+  {
+    "id": "g004",
+    "video_id": "sample_19min",
+    "type": "yes_no",
+    "question": "Does anyone touch the electric fan at 11:00?"
+  },
+  {
+    "id": "g005",
+    "video_id": "sample_19min",
+    "type": "text",
+    "question": "What is the order number shown on the receipt at 10:00?"
+  }
+]
