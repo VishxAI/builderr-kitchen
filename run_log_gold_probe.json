@@ -1,0 +1,7 @@
+{
+  "runtime_seconds": 52.9,
+  "frames_processed": 293,
+  "model_calls": 18,
+  "estimated_model_api_cost_usd": 0.0,
+  "normalized_model_api_cost_per_60min_usd": 0.0
+}

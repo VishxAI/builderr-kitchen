@@ -25,8 +25,34 @@ import cv2
 
 TRACE = bool(os.environ.get("ENGINE_TRACE"))
 
-OCR_KEYWORDS = ("order number", "receipt", "ticket", "label", "screen", "display",
-                "number visible", "text visible", "written")
+# Text-reading questions must route to the OCR path, which abstains
+# (not_visible) when nothing is reliably legible instead of hallucinating a
+# reading through the generic VLM path. The old approach -- a flat keyword
+# membership test -- both missed common phrasings ("what does the sign say",
+# "is the code legible") and mis-fired on non-text questions that merely
+# named a surface ("how many people at the display counter"). This detector
+# requires genuine read intent: a strong text noun, or a text noun paired
+# with a read/visibility verb, and never fires on a "how many" count.
+_TEXT_NOUN = (r"(?:order\s?numbers?|receipts?|tickets?|invoices?|serial|"
+              r"numbers?|texts?|labels?|signs?|signage|brands?|logos?|names?|"
+              r"codes?|digits?|letters?|characters?|writing|menus?|boards?|"
+              r"price\s?tags?|stickers?|words?)")
+_TEXT_READ_VERB = (r"(?:says?|said|reads?|reading|writ(?:ten|e)|shown?|"
+                   r"display(?:ed|s)?|printed?|visible|readable|legible|"
+                   r"see|spell(?:ed|s)?|says)")
+
+
+def is_text_question(qtext: str) -> bool:
+    """True when the answer hinges on reading written characters on-screen."""
+    q = qtext.lower()
+    if re.match(r"\s*how many\b", q):
+        return False  # a count, even if it mentions a labelled surface
+    if re.search(r"\b(?:order\s?number|receipt|ticket|invoice)\b", q):
+        return True   # strong nouns that are always about printed text
+    has_noun = re.search(rf"\b{_TEXT_NOUN}\b", q)
+    has_verb = re.search(rf"\b{_TEXT_READ_VERB}\b", q)
+    return bool(has_noun and has_verb)
+
 
 # events about people appearing/leaving can be localized via the YOLO index
 PERSON_EVENT = re.compile(
@@ -281,13 +307,21 @@ class Engine:
             return {"answer": "not_visible", "confidence": 0.0, "evidence": []}
         raw = self.vlm_ask(frames, f"{question} Answer with a single number only.", max_new_tokens=16)
         n = count_from_text(raw)
-        yolo_n = self._yolo_persons_near(t)
+        # cross-check against YOLO run on the *exact* frame the question anchors
+        # on, not a coarse index sample seconds away (grounding precision)
+        yolo_n = len(self._detect_exact(frames[0]))
         if n is None:
             n = yolo_n
-        conf = 0.85 if (yolo_n is not None and n == yolo_n) else 0.6
+        conf = 0.85 if n == yolo_n else 0.6
         if n is None:
             return {"answer": "not_visible", "confidence": 0.2, "evidence": self._ev(t, t)}
         return {"answer": n, "confidence": conf, "evidence": self._ev(t, t)}
+
+    def _detect_exact(self, frame) -> list[list[float]]:
+        """YOLO person boxes on this exact frame (local, not a billable call)."""
+        from .coarse import detect_persons
+
+        return detect_persons(frame)
 
     def _record_near(self, t: float):
         recs = self.index["records"]
@@ -320,24 +354,50 @@ class Engine:
         # frame we pick already anchors the moment
         predicate = re.sub(r"\s*(at\s+\d{1,2}:\d{2}(:\d{2})?|right now|currently)\s*$",
                            "", predicate, flags=re.I).strip()
+        # candidates are (frame_t, frame, person_boxes) tuples. For an anchored
+        # question, detect on the EXACT frame so the crops come from the moment
+        # asked about, not a coarse index sample seconds away.
+        cand: list[tuple[float, object, list]] = []
         if t is not None:
-            cand = [self._person_frame_near(t) or self._person_frame_near(t, window=25.0)]
+            _, frames = self.frames_at([t])
+            if frames:
+                boxes = self._detect_exact(frames[0])
+                if boxes:
+                    cand = [(t, frames[0], boxes)]
+            if not cand:
+                # nobody on the exact frame: fall back to the nearest coarse
+                # sample that did catch people (motion blur / occlusion at t)
+                rec = self._person_frame_near(t) or self._person_frame_near(t, window=25.0)
+                if rec and rec.get("person_boxes"):
+                    _, frames = self.frames_at([rec["t"]])
+                    if frames:
+                        cand = [(rec["t"], frames[0], rec["person_boxes"])]
         else:
-            cand = [self._person_frame_near(tt) for tt in self.active_times(3)]
-        cand = [r for r in cand if r and r.get("person_boxes")]
+            for tt in self.active_times(3):
+                rec = self._person_frame_near(tt)
+                if rec and rec.get("person_boxes"):
+                    _, frames = self.frames_at([rec["t"]])
+                    if frames:
+                        cand.append((rec["t"], frames[0], rec["person_boxes"]))
         if not cand:
             # genuinely nobody detected near the question's moment: fall back
             # to a blind whole-frame VLM count rather than guessing zero
             return self.at_time_count(t if t is not None else self.duration / 2, question)
         counts = []
         used_t = None
-        for rec in cand:
-            _, frames = self.frames_at([rec["t"]])
-            if not frames:
-                continue
-            frame = frames[0]
+        for frame_t, frame, boxes in cand:
             h, w = frame.shape[:2]
-            boxes = rec["person_boxes"]
+            # drop detections too small/partial to resolve the attribute -- a
+            # ~30px sliver of a person at the frame edge can't support a
+            # headwear/clothing judgment, and forcing one produces confident
+            # hallucinations ("black hair cover" from a dark-haired sliver).
+            # For "how many are wearing X", an unresolvable person simply isn't
+            # a confirmable yes, so excluding them is the correct count too.
+            boxes = [b for b in boxes if (b[2] - b[0]) >= 45 and (b[3] - b[1]) >= 70]
+            if not boxes:
+                counts.append(0)
+                used_t = frame_t
+                continue
             crops = []
             for i, (x1, y1, x2, y2) in enumerate(boxes):
                 # generous margin: attribute cues (shirt color, headwear) sit
@@ -396,6 +456,14 @@ class Engine:
                     if TRACE:
                         print(f"    crop {garment} color: {resp!r} -> {ans}")
                 else:
+                    # bare hair (even dark/tied-back) is not a covering -- the
+                    # model otherwise calls dark hair "a black hair cover" and
+                    # over-counts hygiene headwear
+                    clarify = ""
+                    if re.search(r"\b(cap|hat|hair\s?cover|hairnet|head|helmet|beard\s?net)\b",
+                                 predicate, re.I):
+                        clarify = (" A hat, cap, hairnet, or cloth head covering counts; "
+                                   "bare hair, however dark or tied back, does not.")
                     # describe first, verdict last: a snap first-token 'yes'
                     # from this model often gets contradicted by its own
                     # description
@@ -405,7 +473,7 @@ class Engine:
                         "close range. First, in one sentence, describe their "
                         "visible clothing colors and headwear. Then on a new line "
                         f"write exactly 'Answer: yes' or 'Answer: no' for whether "
-                        f"this is true of them: {predicate}.",
+                        f"this is true of them: {predicate}.{clarify}",
                         max_new_tokens=48,
                     )
                     ans, _ = verdict_from_text(single)
@@ -414,7 +482,7 @@ class Engine:
                 if ans == "yes":
                     n += 1
             counts.append(n)
-            used_t = rec["t"]
+            used_t = frame_t
         if not counts:
             return {"answer": "not_visible", "confidence": 0.2, "evidence": []}
         modal = max(set(counts), key=counts.count)
@@ -469,18 +537,20 @@ class Engine:
             kept, frames = self.frames_at(times)
             if not frames:
                 continue
+            center = frames[len(frames) // 2]
             box = None
             if obj:
-                box = self._locate_object(frames[len(frames) // 2], obj)
+                box = self._locate_object(center, obj)
             if box:
                 # contact needs person AND object in view: union the object box
-                # with any detected person boxes before cropping
+                # with a person box detected on the exact center frame (not a
+                # coarse index sample) before cropping
                 x1, y1, x2, y2 = box
-                rec = self._record_near(a)
-                if rec and rec.get("person_boxes"):
+                person_boxes = self._detect_exact(center)
+                if person_boxes:
                     h, w = frames[0].shape[:2]
                     pd = min(
-                        rec["person_boxes"],
+                        person_boxes,
                         key=lambda p: abs((p[0] + p[2]) / 2 - (x1 + x2) / 2)
                                       + abs((p[1] + p[3]) / 2 - (y1 + y2) / 2),
                     )
@@ -955,12 +1025,14 @@ class Engine:
             res["id"] = question["id"]
             return res
 
-        if any(k in qtext.lower() for k in OCR_KEYWORDS):
-            res = self.ocr_question(t, qtext)
-        elif qtype == "count" and ATTRIBUTE_COUNT.search(qtext):
+        # count and touch win over the text router so "how many people at the
+        # display" or "did the cook touch the receipt" aren't hijacked into OCR
+        if qtype == "count" and ATTRIBUTE_COUNT.search(qtext):
             res = self.grounded_person_count(t, qtext)
         elif qtype == "yes_no" and TOUCH_VERBS.search(qtext):
             res = self.touch_burst(t, qtext)
+        elif is_text_question(qtext):
+            res = self.ocr_question(t, qtext)
         elif qtype == "count" and t is not None:
             res = self.at_time_count(t, qtext)
         elif qtype == "yes_no" and t is not None:

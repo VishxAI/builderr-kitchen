@@ -55,6 +55,33 @@ def motion_score(prev_gray, gray) -> float:
     return float(np.mean(cv2.absdiff(prev_gray, gray)))
 
 
+_detector = None
+
+
+def get_detector():
+    """Lazily-loaded shared YOLO model for on-demand single-frame detection."""
+    global _detector
+    if _detector is None:
+        from ultralytics import YOLO
+
+        _detector = YOLO(YOLO_MODEL)
+    return _detector
+
+
+def detect_persons(frame, device: str | None = None) -> list[list[float]]:
+    """Run YOLO person detection on one frame. Returns [[x1,y1,x2,y2], ...].
+
+    Used by the engine to ground perception on the *exact* frame a
+    timestamp-anchored question asks about, instead of reusing a coarse
+    index sample that may be several seconds away. Local and ~free — like
+    the coarse pass, it does not count as a billable model call.
+    """
+    res = get_detector()(frame, classes=[0], verbose=False, device=device)[0]
+    if res.boxes is None:
+        return []
+    return res.boxes.xyxy.cpu().numpy().round(1).tolist()
+
+
 def build_index(video_path: Path, interval_s: float = 4.0, device: str | None = None) -> dict:
     from ultralytics import YOLO
 

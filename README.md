@@ -21,7 +21,8 @@ is genuinely $0.00.** GPU (≥6 GB VRAM) recommended; CPU works with more wall-c
    batched YOLO person detection. 60 min of video indexes in ~16 s.
 3. **Question routing** (`pipeline/engine.py`) — per-type strategies:
    - *count / yes-no at a timestamp*: targeted frames + Qwen3-VL query; counts
-     cross-checked against the YOLO index.
+     cross-checked against YOLO run on the **exact** requested frame (not a
+     coarse index sample seconds away — see "Exact-frame grounding" below).
    - *timestamp*: activity-biased probe scan → **confirm-on-yes** (a false yes wrecks
      bisection, a false no only delays it) → bisection to inside the ±2 s tolerance.
    - *duration*: state-start and state-end located the same way.
@@ -144,6 +145,42 @@ failures. Each is now covered by `scripts/probe_gold_feedback.py`:
   threshold could make "is any text visible" answer "yes" on every frame of
   a watermarked video. Filtering now happens once, before any downstream use
   of `best`.
+
+## Exact-frame grounding & broadened text routing
+
+Two changes driven by organizer feedback ("improve exact-frame grounding" and
+"handle unreadable text as not visible"):
+
+- **Perception now grounds on the exact requested frame.** Whole-second seeking
+  was already exact (verified across all four videos), but the *YOLO person
+  boxes* used by count / attribute / touch questions were being reused from the
+  nearest coarse index sample — up to 8–25 s away from the timestamp asked
+  about. A "how many people at 5:00" could therefore count bodies from a frame
+  seconds off. `pipeline/coarse.py` now exposes an on-demand `detect_persons()`
+  (shared lazy YOLO model), and the count/attribute/touch paths run it on the
+  exact frame. It reuses the already-grabbed frame, so it adds no frame-budget
+  or cost — YOLO is local and free, like the coarse pass.
+- **A size filter rejects unresolvable detections.** Exact-frame detection also
+  surfaces marginal partial people (e.g. a 32 px sliver at the frame edge). You
+  can't judge headwear or clothing color on 32 px, and forcing a verdict
+  produces confident hallucinations ("black hair cover" from a dark-haired
+  sliver). Boxes narrower than 45 px or shorter than 70 px are dropped from
+  attribute counts — and for "how many are wearing X", an unresolvable person
+  isn't a confirmable yes anyway, so excluding them is also the correct count.
+- **Bare hair is not a covering.** Headwear predicates now explicitly tell the
+  model that a hat/cap/hairnet/cloth covering counts but bare hair — however
+  dark or tied back — does not, which stopped dark hair being over-counted as a
+  hair cover on the hygiene-themed questions.
+- **Text-reading questions route to the abstaining OCR path far more reliably.**
+  The old router used a flat keyword membership test that both missed common
+  phrasings ("what does the sign say", "is the code legible") — sending them to
+  the generic VLM path where an unreadable label gets a hallucinated reading —
+  and mis-fired on count questions that merely named a surface ("how many people
+  at the display counter"). Replaced with `is_text_question()`, which requires
+  genuine read intent (a strong text noun, or a text noun + a read/visibility
+  verb) and never fires on a "how many" count. When nothing legible is found the
+  OCR path returns `not_visible`, which is what the rubric wants for unreadable
+  text.
 
 ## Stress-testing on the "messy reference" video
 
